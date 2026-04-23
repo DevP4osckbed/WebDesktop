@@ -1,0 +1,28 @@
+{
+  "name": "webdesktop",
+  "version": "1.0.0",
+  "description": "a desktop interface using chrome apis",
+  "keywords": [
+    "desktop",
+    "webgl",
+    "web",
+    "isodev",
+    "interface",
+    "api"
+  ],
+  "license": "ISC",
+  "author": "isodev",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start" : "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.15.1",
+    "express": "^5.2.1",
+    "html2canvas": "^1.4.1",
+    "http": "^0.0.1-security",
+    "ws": "^8.20.0"
+  }
+}
