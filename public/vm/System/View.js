@@ -1,35 +1,36 @@
-// System/View.js
+import { ViewManager } from './ViewManager.js';
+
 export class View {
-    constructor(x, y, width, height) {
+    constructor(mouse, x, y, width, height, zIndex = 0) {
         this.x = x;
         this.y = y;
         this.width = width;
         this.height = height;
+        this.zIndex = zIndex;
 
         this.isHovered = false;
         this.isDragging = false;
+        this.mouse = mouse;
         
-        // Offset to keep the mouse stuck to the same spot on the view during drag
         this.dragOffset = { x: 0, y: 0 };
+        
+        ViewManager.register(this);
     }
 
-    /**
-     * Checks if a coordinate is within this view's bounds
-     */
     contains(px, py) {
         return px >= this.x && px <= this.x + this.width &&
                py >= this.y && py <= this.y + this.height;
     }
 
-    update(mouse) {
+    update(mouse, canInteract) {
         const wasHovered = this.isHovered;
-        this.isHovered = this.contains(mouse.pos.x, mouse.pos.y);
+        this.isHovered = canInteract && this.contains(mouse.pos.x, mouse.pos.y);
 
-        // 1. Handle Mouse Enter/Leave
+        // Hover events
         if (!wasHovered && this.isHovered) this.onMouseEnter();
         if (wasHovered && !this.isHovered) this.onMouseLeave();
 
-        // 2. Handle Drag Start
+        // Drag Start
         if (this.isHovered && mouse.getButtonPressed('left')) {
             this.isDragging = true;
             this.dragOffset.x = mouse.pos.x - this.x;
@@ -37,11 +38,9 @@ export class View {
             this.onDragStart();
         }
         
-        // 3. Handle Dragging (Update position)
+        // Dragging
         if (this.isDragging) {
             if (mouse.getButtonDown('left')) {
-                this.x = mouse.pos.x - this.dragOffset.x;
-                this.y = mouse.pos.y - this.dragOffset.y;
                 this.onDrag();
             } else {
                 this.isDragging = false;
@@ -49,28 +48,26 @@ export class View {
             }
         }
         
-        // 4. Handle Clicks
         if (this.isHovered && mouse.getButtonReleased('left')) {
             this.onClick();
         }
     }
 
-    // Event Hooks (Override these in subclasses like Button or Window)
     onMouseEnter() {}
     onMouseLeave() {}
     onDragStart() {}
-    onDrag()      {}
-    onDragEnd()   {}
-    onClick()     {}
+    
+    // Default drag behavior (can be overridden)
+    onDrag() {
+        this.x = this.mouse.pos.x - this.dragOffset.x;
+        this.y = this.mouse.pos.y - this.dragOffset.y;
+    }
+    
+    onDragEnd() {}
+    onClick() {}
 
     draw(ctx) {
-        // Base drawing logic
-        ctx.fillStyle = this.isHovered ? '#444' : '#222';
+        ctx.fillStyle = this.isHovered ? 'rgba(255,255,255,0.1)' : 'transparent';
         ctx.fillRect(this.x, this.y, this.width, this.height);
-        
-        if (this.isDragging) {
-            ctx.strokeStyle = 'cyan';
-            ctx.strokeRect(this.x, this.y, this.width, this.height);
-        }
     }
 }

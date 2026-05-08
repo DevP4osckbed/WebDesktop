@@ -1,159 +1,117 @@
+import { View } from './View.js';
+import { ResizeHelper } from './ResizeHelper.js';
+
 export class Window {
-    constructor(session) {
+    constructor(session, mouse, x = 50, y = 50, width = 400, height = 300) {
         this.session = session;
         this.canvas = session.canvas;
-        
-        this.pos = { x: 50, y: 50 };
-        this.size = { width: 400, height: 300 };
+        this.mouse = mouse;
+
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
         this.minSize = { width: 150, height: 100 };
+        this.margin = 8; 
+
+        // Title bar (handle) zIndex 5
+        this.handle = new View(mouse, x, y, width, 20, 5);
         
-        this.titleHeight = 30;
-        this.resizeMargin = 25; 
-        
-        this.status = "normal"; // "normal", "dragging", "resizing"
+        this.resizers =[];
+        this.initResizers();
+
+        this.title = "Window";
         this.isClosed = false;
 
-        this.offscreen = new OffscreenCanvas(this.size.width, this.size.height - this.titleHeight);
-        this.offscreenCtx = this.offscreen.getContext('2d');
+        this.content = new OffscreenCanvas(this.width, this.height - this.handle.height);
+        this.contentCtx = this.content.getContext('2d');
 
-        this.mouse = null;
-        this.dragOffset = { x: 0, y: 0 };
     }
 
-    init(mouse) {
-        this.mouse = mouse;
-        this.resizeOffscreen();
+    initResizers() {
+        const m = this.mouse;
+        
+        // Edge resizers (Z-index 10)
+        const n = new ResizeHelper(m, this, 'n', 0, 0, 0, 0, 10);
+        const s = new ResizeHelper(m, this, 's', 0, 0, 0, 0, 10);
+        const e = new ResizeHelper(m, this, 'e', 0, 0, 0, 0, 10);
+        const w = new ResizeHelper(m, this, 'w', 0, 0, 0, 0, 10);
+        
+        // Corner resizers (Z-index 11)
+        const se = new ResizeHelper(m, this, 'se', 0, 0, 0, 0, 11);
+        const sw = new ResizeHelper(m, this, 'sw', 0, 0, 0, 0, 11);
+        const ne = new ResizeHelper(m, this, 'ne', 0, 0, 0, 0, 11);
+        const nw = new ResizeHelper(m, this, 'nw', 0, 0, 0, 0, 11);
+
+        this.resizers =[n, s, e, w, se, sw, ne, nw];
     }
 
-    resizeOffscreen() {
-        this.offscreen.width = Math.max(1, this.size.width);
-        this.offscreen.height = Math.max(1, this.size.height - this.titleHeight);
-    }
-
-    update() {
+    update(mouse) {
         if (this.isClosed) return;
 
-        const mx = this.mouse.pos.x;
-        const my = this.mouse.pos.y;
-        const isLeftDown = this.mouse.getButtonDown('left');
-        const isLeftPressed = this.mouse.getButtonPressed('left');
-
-        // --- STATE HANDLING ---
-
-        if (this.status === "dragging") {
-            if (isLeftDown) {
-                this.pos.x = mx - this.dragOffset.x;
-                this.pos.y = my - this.dragOffset.y;
-            } else {
-                this.status = "normal";
-            }
-        } 
-        else if (this.status === "resizing") {
-            if (isLeftDown) {
-                this.size.width = Math.max(this.minSize.width, mx - this.pos.x);
-                this.size.height = Math.max(this.minSize.height, my - this.pos.y);
-                this.resizeOffscreen();
-            } else {
-                this.status = "normal";
-            }
-        } 
-        // --- DETECTION LOGIC (Only if not already dragging/resizing) ---
-        else if (isLeftPressed) {
-            // 1. Close Button Check (Top Right)
-            const closeBtn = { 
-                x: this.pos.x + this.size.width - 26, 
-                y: this.pos.y + 4, 
-                w: 22, h: 22 
-            };
-            if (this.pointInRect(mx, my, closeBtn)) {
-                this.isClosed = true;
-                return;
-            }
-
-            // 2. Title Bar Check (Dragging)
-            const titleBar = { 
-                x: this.pos.x, 
-                y: this.pos.y, 
-                w: this.size.width, 
-                h: this.titleHeight 
-            };
-            if (this.pointInRect(mx, my, titleBar)) {
-                this.status = "dragging";
-                this.dragOffset.x = mx - this.pos.x;
-                this.dragOffset.y = my - this.pos.y;
-                return; // Exit early so we don't trigger resize
-            }
-
-            // 3. Border Check (Resizing)
-            // Area: Inside outer shell BUT outside the actual window body
-            const shell = { 
-                x: this.pos.x, 
-                y: this.pos.y, 
-                w: this.size.width + this.resizeMargin, 
-                h: this.size.height + this.resizeMargin 
-            };
-            const body = { 
-                x: this.pos.x, 
-                y: this.pos.y, 
-                w: this.size.width, 
-                h: this.size.height 
-            };
-
-            if (this.pointInRect(mx, my, shell) && !this.pointInRect(mx, my, body)) {
-                this.status = "resizing";
-            }
+        // Sync window position to handle ONLY if the handle is actively being dragged
+        if (this.handle.isDragging) {
+            this.x = this.handle.x;
+            this.y = this.handle.y;
         }
 
         this.constrain();
+
+        // Enforce synchronization back to hitboxes (handles & resizers)
+        this.handle.x = this.x;
+        this.handle.y = this.y;
+        this.handle.width = this.width; 
+
+        this.updateResizerBounds();
     }
 
-    pointInRect(px, py, rect) {
-        return px >= rect.x && px <= rect.x + rect.w && 
-               py >= rect.y && py <= rect.y + rect.h;
+    updateResizerBounds() {
+        const t = this.margin;
+        const [n, s, e, w, se, sw, ne, nw] = this.resizers;
+
+        // Edge Hitboxes
+        n.x = this.x + t;                 n.y = this.y - t/2;               n.width = this.width - t*2; n.height = t;
+        s.x = this.x + t;                 s.y = this.y + this.height - t/2; s.width = this.width - t*2; s.height = t;
+        e.x = this.x + this.width - t/2;  e.y = this.y + t;                 e.width = t;                e.height = this.height - t*2;
+        w.x = this.x - t/2;               w.y = this.y + t;                 w.width = t;                w.height = this.height - t*2;
+
+        // Corner Hitboxes
+        nw.x = this.x - t/2;              nw.y = this.y - t/2;              nw.width = t; nw.height = t;
+        ne.x = this.x + this.width - t/2; ne.y = this.y - t/2;              ne.width = t; ne.height = t;
+        sw.x = this.x - t/2;              sw.y = this.y + this.height - t/2; sw.width = t; sw.height = t;
+        se.x = this.x + this.width - t/2; se.y = this.y + this.height - t/2; se.width = t; se.height = t;
     }
 
     constrain() {
-        // Prevents dragging/resizing entirely outside the viewport
-        this.pos.x = Math.max(-this.size.width + 50, Math.min(this.pos.x, this.canvas.width - 50));
-        this.pos.y = Math.max(0, Math.min(this.pos.y, this.canvas.height - this.titleHeight));
+        this.x = Math.max(0, Math.min(this.x, this.canvas.width - this.width));
+        this.y = Math.max(0, Math.min(this.y, this.canvas.height - this.height));
     }
 
     draw(ctx) {
         if (this.isClosed) return;
 
-        // Window Outline (Highlights when active)
-        ctx.strokeStyle = (this.status !== "normal") ? '#007acc' : '#444';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(this.pos.x, this.pos.y, this.size.width, this.size.height);
-
-        // Background
+        // Window Background
         ctx.fillStyle = '#1e1e1e';
-        ctx.fillRect(this.pos.x, this.pos.y, this.size.width, this.size.height);
-
-        // Title Bar
-        ctx.fillStyle = (this.status === "dragging") ? '#333' : '#252526';
-        ctx.fillRect(this.pos.x, this.pos.y, this.size.width, this.titleHeight);
+        ctx.fillRect(this.x, this.y, this.width, this.height);
         
-        // Title text
-        ctx.fillStyle = '#ccc';
-        ctx.font = '13px Arial';
-        ctx.fillText("Virtual Machine", this.pos.x + 10, this.pos.y + 20);
+        // Window Border
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
 
-        // Close Button
-        ctx.fillStyle = '#e81123';
-        ctx.fillRect(this.pos.x + this.size.width - 26, this.pos.y + 4, 22, 22);
-        ctx.fillStyle = 'white';
-        ctx.fillText("✕", this.pos.x + this.size.width - 20, this.pos.y + 19);
+        this.drawTitleBar(ctx);
 
-        // Window Content Area
-        ctx.drawImage(this.offscreen, this.pos.x, this.pos.y + this.titleHeight);
-        
-        // Debug: Show Resize Hitbox (Optional - remove when done)
-        if (this.status === "resizing") {
-            ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
-            ctx.setLineDash([5, 5]);
-            ctx.strokeRect(this.pos.x, this.pos.y, this.size.width + this.resizeMargin, this.size.height + this.resizeMargin);
-            ctx.setLineDash([]);
-        }
+        // Draw content area (for demonstration, fill with a color)
+        this.contentCtx.fillStyle = '#2e2e2e';
+        this.contentCtx.fillRect(0, 0, this.content.width, this.content.height);
+        ctx.drawImage(this.content, this.x, this.y + this.handle.height);
+        ctx.fillText(`Content Area (${this.content.width}x${this.content.height})`, this.x + 10, this.y + this.handle.height + 20);
+    }
+
+    drawTitleBar(ctx) {
+        this.handle.draw(ctx);
+        ctx.fillStyle = '#ebebeb';
+        ctx.font = '14px monospace';
+        ctx.fillText(this.title, this.x + 10, this.y + 15);
     }
 }
